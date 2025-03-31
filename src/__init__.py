@@ -7,5 +7,6 @@ that supports prioritization and interrupt nesting.
 
 from .interrupt import Interrupt
 from .interrupt_handler import InterruptHandler, InterruptSystem
+from .visualization import InterruptVisualizer
 
-__all__ = ['Interrupt', 'InterruptHandler', 'InterruptSystem']
+__all__ = ['Interrupt', 'InterruptHandler', 'InterruptSystem', 'InterruptVisualizer']

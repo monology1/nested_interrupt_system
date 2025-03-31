@@ -1,0 +1,12 @@
+# Core dependencies
+# The nested interrupt system primarily uses Python standard library
+# so minimal external dependencies are required
+
+# Recommended Python version
+# python>=3.6
+
+# Visualization dependencies
+matplotlib>=3.5.0
+numpy>=1.20.0
+
+# No external packages required for core functionality
