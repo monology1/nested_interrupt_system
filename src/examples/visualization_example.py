@@ -77,6 +77,9 @@ def trigger_interrupts():
     system.trigger("low_priority", data="Queued low task 2")
     system.trigger("medium_priority", data="Queued medium task")
 
+    # Allow some time for processing the queued interrupts
+    time.sleep(8)
+
     logger.info("Finished triggering interrupts")
 
 
@@ -90,8 +93,8 @@ if __name__ == "__main__":
     system.register_interrupt("medium_priority", 50, handle_medium_priority)
     system.register_interrupt("low_priority", 10, handle_low_priority)
 
-    # Create visualizer with shorter history window (5 seconds)
-    visualizer = InterruptVisualizer(system, history_seconds=5)
+    # Create visualizer with shorter history window for better visibility
+    visualizer = InterruptVisualizer(system, history_seconds=10)
 
     # Start trigger thread
     trigger_thread = threading.Thread(target=trigger_interrupts, daemon=True)

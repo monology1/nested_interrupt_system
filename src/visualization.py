@@ -1,14 +1,17 @@
 """
-Improved visualization module for the nested interrupt system.
+Fixed visualization module for the nested interrupt system.
 """
 
 import time
 import threading
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 from matplotlib.patches import Rectangle
+import matplotlib.animation as animation
 import numpy as np
 from collections import deque
+
+# Set a lighter style for better visibility
+plt.style.use('default')  # Reset to default style
 
 class InterruptVisualizer:
     """
@@ -34,12 +37,24 @@ class InterruptVisualizer:
         # Current state
         self.active_interrupts = {}  # name -> start_time
 
-        # Setup figure - with only one large graph
+        # Setup figure with light background
+        plt.rcParams.update({
+            'figure.facecolor': 'white',
+            'axes.facecolor': 'white',
+            'savefig.facecolor': 'white',
+            'text.color': 'black',
+            'axes.labelcolor': 'black',
+            'xtick.color': 'black',
+            'ytick.color': 'black',
+        })
+
         self.fig, self.ax = plt.subplots(figsize=(12, 7))
         self.fig.suptitle('Nested Interrupt System Timeline', fontsize=16)
 
-        # Setup colors
-        self.colors = plt.cm.tab10.colors
+        # Setup colors - use vibrant colors
+        self.colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+                       '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+                       '#bcbd22', '#17becf']
         self.interrupt_colors = {}  # name -> color
 
         # Animation
@@ -66,9 +81,18 @@ class InterruptVisualizer:
 
             # Assign a color if not already assigned
             if interrupt.name not in self.interrupt_colors:
-                # Assign a unique color based on priority
-                color_idx = len(self.interrupt_colors) % len(self.colors)
-                self.interrupt_colors[interrupt.name] = self.colors[color_idx]
+                # Assign a unique color based on priority or name
+                if interrupt.name == "critical":
+                    self.interrupt_colors[interrupt.name] = '#d62728'  # Red
+                elif interrupt.name == "high_priority":
+                    self.interrupt_colors[interrupt.name] = '#ff7f0e'  # Orange
+                elif interrupt.name == "medium_priority":
+                    self.interrupt_colors[interrupt.name] = '#2ca02c'  # Green
+                elif interrupt.name == "low_priority":
+                    self.interrupt_colors[interrupt.name] = '#1f77b4'  # Blue
+                else:
+                    color_idx = len(self.interrupt_colors) % len(self.colors)
+                    self.interrupt_colors[interrupt.name] = self.colors[color_idx]
 
             # Call original method
             return original_handle(interrupt)
@@ -110,15 +134,27 @@ class InterruptVisualizer:
         display_events = [e for e in self.interrupt_events if current_time - self.history_seconds <= e[0] <= current_time]
 
         # Get all unique interrupt names in display window, sorted by priority (highest first)
-        active_names = set([e[1] for e in display_events])
-        name_to_priority = {e[1]: e[3] for e in display_events}
-        sorted_names = sorted(active_names, key=lambda name: name_to_priority.get(name, 0), reverse=True)
+        active_names = set()
 
-        # If empty, add default interrupts
-        if not sorted_names and hasattr(self.system, 'interrupts'):
-            sorted_names = sorted(self.system.interrupts.keys(),
-                                 key=lambda name: self.system.interrupts[name].priority,
-                                 reverse=True)
+        # Add registered interrupts that might not have been triggered yet
+        if hasattr(self.system, 'interrupts'):
+            active_names.update(self.system.interrupts.keys())
+
+        # Add names from display events
+        for e in display_events:
+            active_names.add(e[1])
+
+        # Create name to priority mapping
+        name_to_priority = {}
+        for e in display_events:
+            name_to_priority[e[1]] = e[3]
+
+        # Add priorities for registered interrupts
+        if hasattr(self.system, 'interrupts'):
+            for name, interrupt in self.system.interrupts.items():
+                name_to_priority[name] = interrupt.priority
+
+        sorted_names = sorted(active_names, key=lambda name: name_to_priority.get(name, 0), reverse=True)
 
         # Create y-position mapping
         name_to_y = {name: i for i, name in enumerate(sorted_names)}
@@ -166,13 +202,19 @@ class InterruptVisualizer:
                 active_periods[name].append((visible_start, current_time))
 
         # Draw active periods as rectangles
-        bars = []
         for name, periods in active_periods.items():
             if name not in name_to_y:
                 # This can happen if we have active interrupts not in our display window
-                continue
+                # Add it to our y-position mapping
+                name_to_y[name] = len(name_to_y)
 
             y_pos = name_to_y[name]
+
+            # Ensure we have a color for this interrupt
+            if name not in self.interrupt_colors:
+                color_idx = len(self.interrupt_colors) % len(self.colors)
+                self.interrupt_colors[name] = self.colors[color_idx]
+
             color = self.interrupt_colors.get(name, 'gray')
 
             for start, end in periods:
@@ -182,7 +224,6 @@ class InterruptVisualizer:
                 rect = Rectangle((start, y_pos - 0.3), end - start, 0.6,
                                 color=color, alpha=0.7)
                 self.ax.add_patch(rect)
-                bars.append(rect)
 
                 # Add interrupt name if it's long enough to fit text
                 if end - start > 0.5:
@@ -194,7 +235,9 @@ class InterruptVisualizer:
         # Add y-axis labels with priorities
         yticks = []
         yticklabels = []
-        for name in sorted_names:
+
+        # Ensure we have all sorted_names in our mapping
+        for name in sorted(name_to_y.keys(), key=lambda n: name_to_priority.get(n, 0), reverse=True):
             y_pos = name_to_y[name]
             yticks.append(y_pos)
 
@@ -212,8 +255,8 @@ class InterruptVisualizer:
         self.ax.set_xlim(current_time - self.history_seconds, current_time + 0.5)
 
         # Set y-axis limits with some padding
-        if sorted_names:
-            self.ax.set_ylim(-0.5, len(sorted_names) - 0.5)
+        if name_to_y:
+            self.ax.set_ylim(-0.5, len(name_to_y) - 0.5)
         else:
             self.ax.set_ylim(-0.5, 3.5)  # Default if no interrupts
 
@@ -228,7 +271,12 @@ class InterruptVisualizer:
         # Add grid for better readability
         self.ax.grid(True, linestyle='--', alpha=0.3)
 
-        return bars
+        # Draw early message if no events
+        if not display_events and not self.active_interrupts:
+            self.ax.text(current_time - self.history_seconds/2, len(sorted_names)/2 if sorted_names else 1.5,
+                       "Waiting for interrupts...",
+                       ha='center', va='center', color='gray',
+                       fontsize=14, alpha=0.7)
 
     def start(self, interval=100):
         """
@@ -237,14 +285,21 @@ class InterruptVisualizer:
         Args:
             interval: Update interval in milliseconds
         """
-        # Create animation
+        # Create animation with explicit save_count to avoid warning
         self.ani = animation.FuncAnimation(
-            self.fig, self._update_plot, interval=interval, blit=True
+            self.fig, self._update_plot, interval=interval,
+            cache_frame_data=False,  # Disable frame caching
+            save_count=100  # Limit saved frames
         )
 
         plt.tight_layout()
         plt.subplots_adjust(top=0.92)  # Make room for the title
-        plt.show()
+
+        # Draw initial frame to make sure something is visible
+        self._update_plot(0)
+
+        # Use blocking show to keep window open
+        plt.show(block=True)
 
     def stop(self):
         """

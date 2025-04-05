@@ -1,9 +1,10 @@
 """
-Interrupt handler system implementation.
+Improved interrupt handler system implementation with clearer nested interrupt handling.
 """
 
 import threading
 import logging
+import time
 from .priority_queue import PriorityQueue
 from .interrupt import Interrupt
 
@@ -43,7 +44,9 @@ class InterruptHandler:
         """
         if self.callback is not None:
             try:
+                logger.info(f"Starting handler for {interrupt.name} (priority={interrupt.priority})")
                 self.callback(interrupt)
+                logger.info(f"Completed handler for {interrupt.name} (priority={interrupt.priority})")
                 return True
             except Exception as e:
                 logger.error(f"Error handling interrupt {interrupt.name}: {e}")
@@ -66,6 +69,7 @@ class InterruptSystem:
         self.active_stack = []
         self.global_mask = False
         self._lock = threading.RLock()
+        self._processing_event = threading.Event()  # Flag to signal when processing is complete
 
     def register_interrupt(self, name, priority, handler=None):
         """
@@ -150,8 +154,13 @@ class InterruptSystem:
             self.pending_queue.push(instance, instance.priority)
             logger.info(f"Triggered interrupt: {instance}")
 
+            # Clear processing event to indicate we're actively processing
+            self._processing_event.clear()
+
             # Process pending interrupts
             self._process_pending()
+
+            # Return immediately, don't wait for completion
             return True
 
     def _process_pending(self):
@@ -161,6 +170,7 @@ class InterruptSystem:
         with self._lock:
             # If there are no pending interrupts, return
             if self.pending_queue.is_empty():
+                self._processing_event.set()  # Signal processing is complete
                 return
 
             # Get the highest priority pending interrupt
@@ -172,8 +182,11 @@ class InterruptSystem:
 
                 # If pending has higher priority, interrupt current
                 if pending.priority > current.priority:
+                    logger.info(f"Interrupt {pending.name} preempting {current.name} (priority {pending.priority} > {current.priority})")
                     self._handle_interrupt(pending)
                 # Otherwise, leave in queue for later
+                else:
+                    logger.info(f"Interrupt {pending.name} queued (priority {pending.priority} <= {current.priority})")
             else:
                 # No active interrupts, handle the pending one
                 self._handle_interrupt(pending)
@@ -189,11 +202,13 @@ class InterruptSystem:
             # Remove from pending queue
             self.pending_queue.pop()
 
-            # Set as active
+            # Set as active and add to stack
             interrupt.is_active = True
             self.active_stack.append(interrupt)
 
-            logger.info(f"Handling interrupt: {interrupt}")
+            logger.info(f"Handling interrupt: {interrupt.name} (priority={interrupt.priority})")
+            if self.active_stack and len(self.active_stack) > 1:
+                logger.info(f"Active interrupt stack: {[i.name for i in self.active_stack]}")
 
             # Find the handler
             handler = self.handlers.get(interrupt.name)
@@ -237,7 +252,12 @@ class InterruptSystem:
                 self.active_stack.remove(interrupt)
 
             interrupt.is_active = False
-            logger.info(f"Finished interrupt: {interrupt}")
+
+            if self.active_stack:
+                resumed = self.active_stack[-1]
+                logger.info(f"Finished interrupt: {interrupt.name}, resuming {resumed.name}")
+            else:
+                logger.info(f"Finished interrupt: {interrupt.name}")
 
             # Process any pending interrupts
             self._process_pending()
@@ -274,3 +294,15 @@ class InterruptSystem:
             self.global_mask = masked
             action = "Masked" if masked else "Unmasked"
             logger.info(f"{action} all interrupts")
+
+    def wait_for_completion(self, timeout=None):
+        """
+        Wait for all interrupt processing to complete.
+
+        Args:
+            timeout (float, optional): Maximum time to wait in seconds
+
+        Returns:
+            bool: True if completed, False if timeout occurred
+        """
+        return self._processing_event.wait(timeout)
